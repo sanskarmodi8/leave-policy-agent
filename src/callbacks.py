@@ -32,9 +32,15 @@ MALICIOUS_PATTERNS = [
 ]
 
 
-def before_model_callback(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def before_model_callback(
+    messages: list[dict[str, Any]] | None = None, **kwargs
+) -> list[dict[str, Any]]:
     """
     Security callback executed BEFORE sending to LLM.
+
+    Supports two calling conventions:
+    1. Direct call (tests): before_model_callback(messages)
+    2. Google ADK call: before_model_callback(callback_context=..., llm_request=..., messages=...)
 
     Performs:
     1. PII detection and warning
@@ -43,7 +49,8 @@ def before_model_callback(messages: list[dict[str, Any]]) -> list[dict[str, Any]
     4. Safety instructions injection
 
     Args:
-        messages: List of conversation messages
+        messages: List of conversation messages (direct call) or None (ADK call)
+        **kwargs: Keyword arguments from Google ADK (callback_context, llm_request, messages, etc.)
 
     Returns:
         Modified messages with security enhancements
@@ -52,6 +59,14 @@ def before_model_callback(messages: list[dict[str, Any]]) -> list[dict[str, Any]
         ValueError: If malicious input detected
     """
     logger.info("Running before_model_callback")
+
+    # Support both calling conventions
+    if messages is None:
+        messages = kwargs.get("messages", [])
+
+    # Ensure messages is a list
+    if not isinstance(messages, list):
+        messages = []
 
     for message in messages:
         content = message.get("content", "")
@@ -93,12 +108,24 @@ def before_model_callback(messages: list[dict[str, Any]]) -> list[dict[str, Any]
     messages.insert(last_system_idx + 1, safety_instruction)
 
     logger.info(f"before_model_callback completed: {len(messages)} messages")
-    return messages
+
+    # If called by ADK (with kwargs), return None to indicate in-place modification
+    # If called directly (tests), return the modified messages list
+    if kwargs:
+        # ADK call - messages were modified in-place, return None
+        return None
+    else:
+        # Direct call - return the modified messages
+        return messages
 
 
-def after_model_callback(response: dict[str, Any]) -> dict[str, Any]:
+def after_model_callback(response: dict[str, Any] | None = None, **kwargs) -> dict[str, Any]:
     """
     Security callback executed AFTER LLM generates response.
+
+    Supports two calling conventions:
+    1. Direct call (tests): after_model_callback(response)
+    2. Google ADK call: after_model_callback(callback_context=..., llm_response=..., response=...)
 
     Performs:
     1. PII redaction in output
@@ -107,12 +134,21 @@ def after_model_callback(response: dict[str, Any]) -> dict[str, Any]:
     4. Response validation
 
     Args:
-        response: LLM response
+        response: LLM response (direct call) or None (ADK call)
+        **kwargs: Keyword arguments from Google ADK (callback_context, llm_response, response, etc.)
 
     Returns:
         Modified response with security filtering
     """
     logger.info("Running after_model_callback")
+
+    # Support both calling conventions
+    if response is None:
+        response = kwargs.get("response", kwargs.get("llm_response", {}))
+
+    # Ensure response is a dict
+    if not isinstance(response, dict):
+        response = {}
 
     content = response.get("content", "")
 
@@ -131,7 +167,14 @@ def after_model_callback(response: dict[str, Any]) -> dict[str, Any]:
     response["content"] = content
     response["security_filtered"] = True
 
-    return response
+    # If called by ADK (with kwargs), return None to indicate in-place modification
+    # If called directly (tests), return the modified response
+    if kwargs:
+        # ADK call - response was modified in-place, return None
+        return None
+    else:
+        # Direct call - return the modified response
+        return response
 
 
 def validate_tool_call(tool_name: str, tool_args: dict[str, Any]) -> bool:

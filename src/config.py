@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     model_config = ConfigDict(env_file=".env", case_sensitive=False)
 
     # LLM Configuration
-    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+    openrouter_api_key: str = Field(..., alias="OPENROUTER_API_KEY")
     litellm_model: str = Field(default="gpt-4", alias="LITELLM_MODEL")
 
     # Session memory controls
