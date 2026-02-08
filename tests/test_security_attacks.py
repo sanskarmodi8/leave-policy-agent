@@ -43,6 +43,16 @@ def test_model_cannot_answer_without_tools(monkeypatch):
     by forcing the tool tracker to report no tool calls.
     """
 
+    # Mock the agent's async run to return a response that looks like a decision
+    async def mock_run_agent_async(self, message, session_id, employee_id=None):
+        return "Yes, you are eligible to take 10 days PTO tomorrow."
+
+    monkeypatch.setattr(
+        "src.agent.LeaveAssistantAgent._run_agent_async",
+        mock_run_agent_async,
+    )
+
+    # Force tool tracker to report no tools called
     monkeypatch.setattr(
         "src.utils.request_context.get_tools_called",
         lambda: [],
@@ -56,7 +66,8 @@ def test_model_cannot_answer_without_tools(monkeypatch):
         employee_id="E001",
     )
 
-    assert "check that for you" in response.lower()
+    # The system should block this response because no tools were called
+    assert "verify that for you" in response.lower()
 
 
 # Prompt injection attempt

@@ -98,7 +98,7 @@ class LeaveAssistantAgent:
         # Initialize LiteLLM model
         self.model = LiteLlm(
             model=settings.litellm_model,
-            api_key=settings.openrouter_api_key,
+            api_key=settings.openai_api_key,
         )
 
         # Create agent
