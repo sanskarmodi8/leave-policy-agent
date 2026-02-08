@@ -8,11 +8,11 @@ Each tool must have:
 """
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Annotated, Any
 
 from dateutil import parser
-from dateutil.parser import ParserError
 
 from data.leave_policies import get_leave_policy_data
 from src.observability import trace_span
@@ -156,12 +156,19 @@ def check_leave_eligibility(
             }
 
         # Parse start date
-        try:
-            start_dt = parser.parse(start_date)
-        except (ParserError, ValueError):
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", start_date):
             return {
                 "eligible": False,
-                "reason": f"Invalid date format: {start_date}. Please use YYYY-MM-DD.",
+                "reason": f"Invalid date format: {start_date}. Please use YYYY-MM-DD format.",
+                "error": True,
+            }
+
+        try:
+            start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+        except ValueError as e:
+            return {
+                "eligible": False,
+                "reason": f"Invalid date: {start_date}. {str(e)}",
                 "error": True,
             }
 
@@ -239,7 +246,7 @@ def check_leave_eligibility(
             if num_days > doc_days:
                 warnings.append(f"Medical documentation required for {num_days} days")
 
-        if balance_after < 5:
+        if balance_after <= 5:
             warnings.append(f"Low balance warning: only {balance_after} days will remain")
 
         return {

@@ -2,6 +2,7 @@
 Main agent implementation using Google ADK.
 """
 
+import asyncio
 import logging
 import re
 import time
@@ -10,6 +11,8 @@ from typing import Any
 
 from google.adk import Agent
 from google.adk.models import LiteLlm
+from google.adk.runners import InMemoryRunner
+from google.genai import types
 
 from src.callbacks import after_model_callback, before_model_callback
 from src.config import settings
@@ -110,6 +113,10 @@ class LeaveAssistantAgent:
             after_model_callback=after_model_callback,
         )
 
+        # Create runner with app name
+        self.app_name = "leave_policy_assistant"
+        self.runner = InMemoryRunner(agent=self.agent, app_name=self.app_name)
+
         self.session_state: dict[str, LeaveRequestState] = {}
 
         # Session store.
@@ -118,6 +125,9 @@ class LeaveAssistantAgent:
         #    ts: last access timestamp
         #    messages: bounded conversation history
         self.conversations: OrderedDict[str, dict[str, Any]] = OrderedDict()
+
+        # Track which sessions we've created in the runner's session service
+        self.created_sessions: set[str] = set()
 
         logger.info("LeaveAssistantAgent initialized successfully")
 
@@ -162,10 +172,13 @@ class LeaveAssistantAgent:
         ]
         for sid in expired:
             del self.conversations[sid]
+            # Also remove from created_sessions tracking
+            self.created_sessions.discard(sid)
 
         # Remove oldest if over capacity
         while len(self.conversations) > settings.max_sessions:
-            self.conversations.popitem(last=False)
+            oldest_sid, _ = self.conversations.popitem(last=False)
+            self.created_sessions.discard(oldest_sid)
 
         for sid in list(self.session_state.keys()):
             if sid not in self.conversations:
@@ -228,6 +241,62 @@ class LeaveAssistantAgent:
 
         return any(re.search(p, message) for p in patterns)
 
+    async def _ensure_session_created(self, session_id: str, user_id: str) -> None:
+        """
+        Ensure session exists in runner's session service.
+
+        Args:
+            session_id: Session identifier
+            user_id: User identifier
+        """
+        if session_id not in self.created_sessions:
+            # Create session in the runner's session service
+            await self.runner.session_service.create_session(
+                app_name=self.app_name, user_id=user_id, session_id=session_id
+            )
+            self.created_sessions.add(session_id)
+            logger.info(f"Created session: {session_id} for user: {user_id}")
+
+    async def _run_agent_async(self, message: str, session_id: str, employee_id: str = None) -> str:
+        """
+        Run agent asynchronously using Google ADK Runner pattern.
+
+        Args:
+            message: User's message
+            session_id: Session identifier
+            employee_id: Optional employee ID
+
+        Returns:
+            Agent's response text
+        """
+        user_id = employee_id or "anonymous"
+
+        # Ensure session exists before running
+        await self._ensure_session_created(session_id, user_id)
+
+        # Create user message content
+        content = types.Content(role="user", parts=[types.Part(text=message)])
+
+        final_response_text = None
+
+        try:
+            # Run agent - session already exists
+            async for event in self.runner.run_async(
+                user_id=user_id, session_id=session_id, new_message=content
+            ):
+                # Check if this is the final response
+                if event.is_final_response():
+                    if event.content and event.content.parts:
+                        # Extract text from first part
+                        final_response_text = event.content.parts[0].text
+                    break
+
+        except Exception as e:
+            logger.error(f"Error in async agent run: {str(e)}", exc_info=True)
+            raise
+
+        return final_response_text or ""
+
     def chat(self, message: str, session_id: str, employee_id: str = None) -> str:
         """
         Send a message to the agent and get a response.
@@ -249,13 +318,6 @@ class LeaveAssistantAgent:
             self.conversations[session_id] = {"ts": now, "messages": []}
 
         self.conversations[session_id]["ts"] = now
-        messages = self.conversations[session_id]["messages"]
-
-        messages.append({"role": "user", "content": message})
-
-        # Trim history
-        self.conversations[session_id]["messages"] = messages[-settings.max_history :]
-        messages = self.conversations[session_id]["messages"]
 
         try:
             # security check
@@ -283,18 +345,20 @@ class LeaveAssistantAgent:
                     if missing:
                         return questions.get(missing[0], "Could you clarify your request?")
 
-                # Run agent with conversation history
+                # Run agent with conversation history using async runner
                 try:
                     with trace_span("agent_run", session=session_id):
-                        response = self.agent.run(messages=messages)
-                except ValueError:
+                        # Execute async code in sync context
+                        response_text = asyncio.run(
+                            self._run_agent_async(message, session_id, employee_id)
+                        )
+
+                except (ValueError, AttributeError, TypeError) as e:
+                    logger.error(f"Agent execution failed: {str(e)}", exc_info=True)
                     return "I cannot process that request."
 
-                # Extract response content
-                if isinstance(response, dict):
-                    response_text = response.get("content", str(response))
-                else:
-                    response_text = str(response)
+                if not response_text:
+                    return "I apologize, but I couldn't generate a response."
 
                 # Tool Enforcement
                 tools_used = get_tools_called()
@@ -310,8 +374,7 @@ class LeaveAssistantAgent:
 
                     return safe_response
 
-                messages.append({"role": "assistant", "content": response_text})
-                self.conversations[session_id]["messages"] = messages[-settings.max_history :]
+                # Update conversation tracking
                 self.conversations[session_id]["ts"] = time.time()
 
                 logger.info(f"Agent response generated for session {session_id}")
@@ -332,6 +395,7 @@ class LeaveAssistantAgent:
         """Reset conversation history for a session."""
         if session_id in self.conversations:
             del self.conversations[session_id]
+            self.created_sessions.discard(session_id)
             logger.info(f"Conversation reset for session {session_id}")
 
     def get_conversation_history(self, session_id: str) -> list[dict[str, Any]]:

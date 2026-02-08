@@ -10,7 +10,7 @@ LEAVE_POLICIES = {
             "carryover_limit": 5,
             "min_notice_days": 3,
             "max_consecutive_days": 10,
-            "blackout_periods": ["2024-12-20:2024-12-31"],
+            "blackout_periods": ["2026-12-20:2026-12-31"],
             "approval_required": True,
             "description": "Paid Time Off for US employees",
         },

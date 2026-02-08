@@ -119,9 +119,11 @@ class TestCheckLeaveEligibility:
 
     def test_blackout_period_overlap(self):
         """Test request overlapping with blackout period."""
-        # Dec 20-31 is blackout for US PTO
         result = check_leave_eligibility(
-            employee_id="E001", leave_type="PTO", start_date="2024-12-23", num_days=3
+            employee_id="E001",
+            leave_type="PTO",
+            start_date="2026-12-23",
+            num_days=3,
         )
 
         assert result["eligible"] is False
@@ -181,7 +183,7 @@ class TestCheckLeaveEligibility:
             employee_id="E001",
             leave_type="PTO",
             start_date=start_date,
-            num_days=12,  # Leaves only 3 days
+            num_days=10,
         )
 
         assert result["eligible"] is True

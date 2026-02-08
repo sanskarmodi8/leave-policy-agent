@@ -3,12 +3,14 @@ Configuration management using Pydantic Settings.
 Reads from environment variables.
 """
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Application settings."""
+
+    model_config = ConfigDict(env_file=".env", case_sensitive=False)
 
     # LLM Configuration
     openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
@@ -36,10 +38,6 @@ class Settings(BaseSettings):
         default=5, alias="CIRCUIT_BREAKER_FAILURE_THRESHOLD"
     )
     circuit_breaker_timeout: int = Field(default=60, alias="CIRCUIT_BREAKER_TIMEOUT")
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
 
 
 # Global settings instance

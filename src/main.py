@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.agent import get_agent
 from src.config import settings
@@ -28,33 +28,35 @@ logger = logging.getLogger(__name__)
 class ChatRequest(BaseModel):
     """Request model for chat endpoint."""
 
-    message: str = Field(..., description="User's message")
-    session_id: str = Field(..., description="Session identifier for conversation tracking")
-    employee_id: str | None = Field(None, description="Optional employee ID for context")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "message": "What's my leave balance?",
                 "session_id": "session_123",
                 "employee_id": "E001",
             }
         }
+    )
+
+    message: str = Field(..., description="User's message")
+    session_id: str = Field(..., description="Session identifier for conversation tracking")
+    employee_id: str | None = Field(None, description="Optional employee ID for context")
 
 
 class ChatResponse(BaseModel):
     """Response model for chat endpoint."""
 
-    response: str = Field(..., description="Agent's response")
-    session_id: str = Field(..., description="Session identifier")
-
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "response": "Here's your current leave balance...",
                 "session_id": "session_123",
             }
         }
+    )
+
+    response: str = Field(..., description="Agent's response")
+    session_id: str = Field(..., description="Session identifier")
 
 
 class HealthResponse(BaseModel):
@@ -176,7 +178,7 @@ async def chat(request: ChatRequest):
         # Get agent
         agent = get_agent()
 
-        # Process message
+        # Process message (note: agent.chat() handles async internally via asyncio.run())
         response_text = agent.chat(
             message=request.message, session_id=request.session_id, employee_id=request.employee_id
         )
