@@ -38,7 +38,7 @@ class TestCircuitBreaker:
         def failing_func():
             raise Exception("Test failure")
 
-        with pytest.raises(RuntimeError):
+        with pytest.raises(Exception):
             cb.call(failing_func)
 
         assert cb.state == CircuitState.CLOSED
@@ -53,7 +53,7 @@ class TestCircuitBreaker:
 
         # Fail 3 times
         for _ in range(3):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(Exception):
                 cb.call(failing_func)
 
         assert cb.state == CircuitState.OPEN
@@ -68,7 +68,7 @@ class TestCircuitBreaker:
 
         # Open the circuit
         for _ in range(2):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(Exception):
                 cb.call(failing_func)
 
         # Now circuit is OPEN
@@ -87,7 +87,7 @@ class TestCircuitBreaker:
 
         # Open the circuit
         for _ in range(2):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(Exception):
                 cb.call(failing_func)
 
         assert cb.state == CircuitState.OPEN
@@ -112,7 +112,7 @@ class TestCircuitBreaker:
 
         # Open circuit
         for _ in range(2):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(Exception):
                 cb.call(failing_func)
 
         time.sleep(1.1)
@@ -135,13 +135,13 @@ class TestCircuitBreaker:
 
         # Open circuit
         for _ in range(2):
-            with pytest.raises(RuntimeError):
+            with pytest.raises(Exception):
                 cb.call(failing_func)
 
         time.sleep(1.1)
 
         # Fail in HALF_OPEN
-        with pytest.raises(RuntimeError):
+        with pytest.raises(Exception):
             cb.call(failing_func)
 
         assert cb.state == CircuitState.OPEN

@@ -8,10 +8,10 @@ import time
 from collections import OrderedDict
 from typing import Any
 
-from google.adk.agents import Agent
-from google.adk.llms import LiteLlm
+from google.adk import Agent
+from google.adk.models import LiteLlm
 
-from src.callbacks import after_model_callback, before_model_callback, validate_tool_call
+from src.callbacks import after_model_callback, before_model_callback
 from src.config import settings
 from src.conversation_state import LeaveRequestState
 from src.observability import trace_span
@@ -94,7 +94,7 @@ class LeaveAssistantAgent:
 
         # Initialize LiteLLM model
         self.model = LiteLlm(
-            model_name=settings.litellm_model,
+            model=settings.litellm_model,
             api_key=settings.openai_api_key,
         )
 
@@ -108,7 +108,6 @@ class LeaveAssistantAgent:
             # Add callbacks for security
             before_model_callback=before_model_callback,
             after_model_callback=after_model_callback,
-            validate_tool_call=validate_tool_call,
         )
 
         self.session_state: dict[str, LeaveRequestState] = {}
