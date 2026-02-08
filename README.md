@@ -65,6 +65,115 @@ The agent prioritizes correctness over helpfulness.
 
 ---
 
+## Architecture Diagram
+````
+┌─────────────────────────────────────────────────────────────┐
+│                    CLIENT REQUEST                           │
+│            POST /chat {"message": "...", ...}               │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  FASTAPI REST API                           │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Endpoints:                                          │   │
+│  │  - POST /chat                                        │   │
+│  │  - GET /health                                       │   │
+│  │  - GET /metrics                                      │   │
+│  │  - POST /reset-conversation/{id}                     │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│              SECURITY LAYER (Callbacks)                     │
+│  ┌────────────────────────────────────────────────┐         │
+│  │  BEFORE MODEL CALLBACK                         │         │
+│  │  ├─ PII Detection (SSN, Email, Phone)          │         │
+│  │  ├─ Malicious Prompt Filtering                 │         │
+│  │  ├─ SQL Injection Prevention                   │         │
+│  │  └─ Safety Instructions Injection              │         │
+│  └────────────────────────────────────────────────┘         │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  GOOGLE ADK AGENT                           │
+│  ┌────────────────────────────────────────────────┐         │
+│  │  Agent Components:                             │         │
+│  │  ├─ LiteLLM (GPT-4 / Claude / Gemini)          │         │
+│  │  ├─ ReAct Pattern (Reason → Act → Observe)     │         │
+│  │  ├─ Tool Selection Logic                       │         │
+│  │  └─ Conversation Memory (Session-based)        │         │
+│  └────────────────────────────────────────────────┘         │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    AGENT TOOLS                              │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  1. get_leave_policy(country, leave_type)            │   │
+│  │     → Returns policy rules and allowances            │   │
+│  │                                                      │   │
+│  │  2. check_leave_eligibility(emp_id, dates, type)     │   │
+│  │     → Validates: Balance, Notice, Blackouts          │   │
+│  │                                                      │   │
+│  │  3. get_employee_leave_summary(emp_id)               │   │
+│  │     → Returns all balances and employee info         │   │
+│  └──────────────────────────────────────────────────────┘   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│          SNOWFLAKE CLIENT (Circuit Breaker Protected)       │
+│  ┌────────────────────────────────────────────────┐         │
+│  │  Circuit Breaker States:                       │         │
+│  │  ┌──────────┐  5 failures  ┌──────────┐        │         │
+│  │  │  CLOSED  │─────────────→│   OPEN    │       │         │
+│  │  │ (Normal) │              │ (Blocking)│       │         │
+│  │  └──────────┘              └──────────┘        │         │
+│  │       ↑                         │              │         │
+│  │       │ success            60s timeout         │         │
+│  │       │                         ↓              │         │
+│  │  ┌──────────┐              ┌──────────┐        │         │
+│  │  │HALF_OPEN │←─────────────│  Testing  │       │         │
+│  │  │(Testing) │              │           │       │         │
+│  │  └──────────┘              └──────────┘        │         │
+│  └────────────────────────────────────────────────┘         │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│              DATA SOURCES                                   │
+│  ┌──────────────────────┬──────────────────────┐            │
+│  │  Snowflake Database  │  Mock Data (Fallback)│            │
+│  │  - employees table   │  - LEAVE_POLICIES    │            │
+│  │  - leave_balances    │  - MOCK_EMPLOYEES    │            │
+│  │  (Production)        │  (Development)       │            │
+│  └──────────────────────┴──────────────────────┘            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│              SECURITY LAYER (Callbacks)                     │
+│  ┌────────────────────────────────────────────────┐         │
+│  │  AFTER MODEL CALLBACK                          │         │
+│  │  ├─ PII Redaction (SSN → XXX-XX-XXXX)          │         │
+│  │  ├─ Email Masking (user@domain → ****@domain)  │         │
+│  │  ├─ Audit Logging                              │         │
+│  │  └─ Response Validation                        │         │
+│  └────────────────────────────────────────────────┘         │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+                           ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    CLIENT RESPONSE                          │
+│     {"response": "...", "session_id": "..."}                │
+└─────────────────────────────────────────────────────────────┘
+````
+
+---
+
 ## Architecture Overview
 
 Client → FastAPI → ADK Agent → Tools → Snowflake / Mock Data
@@ -287,6 +396,19 @@ All checks run automatically on commit via pre-commit.
 
 ---
 
+### Run all tests:
+```bash
+# Run tests with coverage
+pytest --cov=src --cov-report=term-missing --cov-report=html
+
+# View coverage report
+open htmlcov/index.html  # macOS
+xdg-open htmlcov/index.html  # Linux
+```
+````
+
+---
+
 ## Docker
 
 Container installs only runtime dependencies from the frozen lockfile.
@@ -357,3 +479,7 @@ Important implementation decisions:
 ## License
 
 [MIT License](LICENSE)
+
+## Author
+
+[**Sanskar Modi**](sanskarmodi8)
