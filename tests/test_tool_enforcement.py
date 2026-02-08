@@ -23,4 +23,4 @@ def test_sensitive_query_without_tools_is_rejected():
             "Can I take 5 days PTO tomorrow?", session_id="safety-test", employee_id="E001"
         )
 
-    assert "check official policy data" in response.lower()
+    assert "verify that for you" in response.lower()

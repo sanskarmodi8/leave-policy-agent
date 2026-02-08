@@ -5,6 +5,7 @@ Run before and after LLM calls to ensure safety and compliance.
 
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 from src.utils.request_context import get_session_employee
@@ -172,8 +173,9 @@ def validate_tool_call(tool_name: str, tool_args: dict[str, Any]) -> bool:
     # Validate date formats
     if "start_date" in tool_args:
         date_str = tool_args["start_date"]
-        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_str):
-            logger.warning(f"Invalid date format: {date_str}")
+        try:
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except ValueError:
             return False
 
     # Validate country codes

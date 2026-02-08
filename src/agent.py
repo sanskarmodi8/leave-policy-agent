@@ -285,8 +285,11 @@ class LeaveAssistantAgent:
                         return questions.get(missing[0], "Could you clarify your request?")
 
                 # Run agent with conversation history
-                with trace_span("agent_run", session=session_id):
-                    response = self.agent.run(messages=messages)
+                try:
+                    with trace_span("agent_run", session=session_id):
+                        response = self.agent.run(messages=messages)
+                except ValueError:
+                    return "I cannot process that request."
 
                 # Extract response content
                 if isinstance(response, dict):
