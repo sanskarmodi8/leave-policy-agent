@@ -9,6 +9,7 @@ from typing import Any
 
 from snowflake.snowpark import Session
 from snowflake.snowpark.exceptions import SnowparkSQLException
+from snowflake.snowpark.functions import col
 
 from data.leave_policies import get_employee_data  # Mock fallback
 from src.circuit_breaker import CircuitBreaker
@@ -101,57 +102,51 @@ class SnowflakeClient:
 
     def _query_employee_from_snowflake(self, employee_id: str) -> dict[str, Any] | None:
         """
-        Internal method to query Snowflake.
-        Protected by circuit breaker.
+        Secure Snowpark query using DataFrame API.
+        Prevents SQL injection by avoiding raw SQL strings entirely.
         """
+
         with self.get_session() as session:
             if session is None:
                 raise Exception("Snowflake session not available")
 
             try:
-                # Query employee table
-                query = f"""
-                    SELECT 
-                        employee_id,
-                        name,
-                        email,
-                        department,
-                        country,
-                        hire_date
-                    FROM employees
-                    WHERE employee_id = '{employee_id}'
-                """
+                # ---- Employee table query (SAFE) ----
+                employee_df = (
+                    session.table("employees")
+                    .select(
+                        "employee_id",
+                        "name",
+                        "email",
+                        "department",
+                        "country",
+                        "hire_date",
+                    )
+                    .filter(col("employee_id") == employee_id)
+                ).to_pandas()
 
-                df = session.sql(query).to_pandas()
-
-                if df.empty:
+                if employee_df.empty:
                     logger.warning(f"Employee {employee_id} not found in Snowflake")
                     return None
 
-                # Convert to dict
-                employee_data = df.iloc[0].to_dict()
+                employee_data = employee_df.iloc[0].to_dict()
 
-                # Query leave balances
-                balance_query = f"""
-                    SELECT 
-                        leave_type,
-                        balance
-                    FROM leave_balances
-                    WHERE employee_id = '{employee_id}'
-                """
+                # ---- Leave balance query (SAFE) ----
+                balance_df = (
+                    session.table("leave_balances")
+                    .select("leave_type", "balance")
+                    .filter(col("employee_id") == employee_id)
+                ).to_pandas()
 
-                balance_df = session.sql(balance_query).to_pandas()
-
-                # Add leave balances
                 employee_data["leave_balances"] = {
                     row["leave_type"]: row["balance"] for _, row in balance_df.iterrows()
                 }
 
-                logger.info(f"Successfully retrieved employee {employee_id} from Snowflake")
+                logger.info(f"Retrieved employee {employee_id} via Snowpark")
                 return employee_data
 
             except SnowparkSQLException as e:
-                logger.error(f"Snowflake SQL error: {e}")
+                logger.error(f"Snowflake error: {e}")
                 raise
 
     def get_circuit_breaker_state(self) -> dict:
@@ -166,5 +161,4 @@ class SnowflakeClient:
 
 
 # Global Snowflake client instance
-# Use mock=True for development without Snowflake credentials
-snowflake_client = SnowflakeClient(use_mock=True)
+snowflake_client = SnowflakeClient(use_mock=not bool(settings.snowflake_account))

@@ -16,6 +16,7 @@ from dateutil.parser import ParserError
 
 from data.leave_policies import get_leave_policy_data
 from src.snowflake_client import snowflake_client
+from src.utils.request_context import register_tool_call
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,9 @@ def get_leave_policy(
             ...
         }
     """
+
+    register_tool_call("get_leave_policy")
+
     logger.info(f"Getting leave policy: country={country}, leave_type={leave_type}")
 
     # Validate country
@@ -141,6 +145,9 @@ def check_leave_eligibility(
             ...
         }
     """
+
+    register_tool_call("check_leave_eligibility")
+
     logger.info(
         f"Checking eligibility: employee={employee_id}, "
         f"leave_type={leave_type}, start_date={start_date}, days={num_days}"
@@ -296,6 +303,9 @@ def get_employee_leave_summary(
     Returns:
         Dictionary with complete employee info and leave balances
     """
+
+    register_tool_call("get_employee_leave_summary")
+
     logger.info(f"Getting leave summary for employee {employee_id}")
 
     employee = snowflake_client.get_employee_info(employee_id)

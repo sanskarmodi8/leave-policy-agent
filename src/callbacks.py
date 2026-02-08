@@ -7,6 +7,8 @@ import logging
 import re
 from typing import Any
 
+from src.utils.request_context import get_session_employee
+
 logger = logging.getLogger(__name__)
 
 # Patterns for PII detection
@@ -152,8 +154,19 @@ def validate_tool_call(tool_name: str, tool_args: dict[str, Any]) -> bool:
     # Validate employee_id format (should be E### pattern)
     if "employee_id" in tool_args:
         emp_id = tool_args["employee_id"]
+
+        # format validation
         if not re.match(r"^E\d{3,}$", emp_id):
             logger.warning(f"Invalid employee_id format: {emp_id}")
+            return False
+
+        # enforce session binding
+        session_emp = get_session_employee()
+        if session_emp and emp_id != session_emp:
+            logger.error(
+                f"SECURITY BLOCK: tool attempted cross-employee access "
+                f"(session={session_emp}, requested={emp_id})"
+            )
             return False
 
     # Validate date formats

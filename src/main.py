@@ -4,6 +4,7 @@ Provides REST API endpoints for chat and monitoring.
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -232,7 +233,7 @@ if __name__ == "__main__":
     uvicorn.run(
         "src.main:app",
         host="0.0.0.0",
-        port=8080,
+        port=int(os.environ.get("PORT", 8080)),
         reload=settings.environment == "development",
         log_level=settings.log_level.lower(),
     )

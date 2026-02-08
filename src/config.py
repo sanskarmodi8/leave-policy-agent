@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
     litellm_model: str = Field(default="gpt-4", alias="LITELLM_MODEL")
 
+    # Session memory controls
+    max_sessions: int = Field(default=1000, alias="MAX_SESSIONS")
+    max_history: int = Field(default=20, alias="MAX_HISTORY")
+    session_ttl_seconds: int = Field(default=1800, alias="SESSION_TTL_SECONDS")
+
     # Snowflake Configuration
     snowflake_account: str = Field(default="", alias="SNOWFLAKE_ACCOUNT")
     snowflake_user: str = Field(default="", alias="SNOWFLAKE_USER")
