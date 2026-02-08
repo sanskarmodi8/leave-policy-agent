@@ -210,6 +210,11 @@ async def reset_conversation(session_id: str):
         ) from e
 
 
+@app.get("/ready")
+def ready():
+    return {"status": "ready"}
+
+
 @app.get("/metrics", tags=["Monitoring"])
 async def metrics():
     """

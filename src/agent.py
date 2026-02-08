@@ -13,6 +13,8 @@ from google.adk.llms import LiteLlm
 
 from src.callbacks import after_model_callback, before_model_callback, validate_tool_call
 from src.config import settings
+from src.conversation_state import LeaveRequestState
+from src.observability import trace_span
 from src.tools import AGENT_TOOLS
 from src.utils.request_context import (
     clear_request_context,
@@ -21,6 +23,7 @@ from src.utils.request_context import (
 )
 
 logger = logging.getLogger(__name__)
+EMPLOYEE_ID_PATTERN = re.compile(r"\bE\d{3,}\b")
 
 
 # Agent system instruction
@@ -73,8 +76,16 @@ Your goal is to make the leave request process smooth and transparent for employ
 
 class LeaveAssistantAgent:
     """
-    Leave Policy Assistant Agent.
-    Wraps Google ADK agent with additional functionality.
+    Deterministic wrapper around a probabilistic language model.
+
+    Responsibilities:
+    - enforce tool usage for all authoritative answers
+    - bind conversations to a single employee identity
+    - prevent memory growth
+    - guide incomplete user workflows
+
+    The LLM generates language only.
+    All decisions originate from backend tools.
     """
 
     def __init__(self):
@@ -100,6 +111,8 @@ class LeaveAssistantAgent:
             validate_tool_call=validate_tool_call,
         )
 
+        self.session_state: dict[str, LeaveRequestState] = {}
+
         # Session store.
         # OrderedDict used so oldest sessions can be evicted deterministically.
         # Each session contains:
@@ -108,6 +121,26 @@ class LeaveAssistantAgent:
         self.conversations: OrderedDict[str, dict[str, Any]] = OrderedDict()
 
         logger.info("LeaveAssistantAgent initialized successfully")
+
+    def _extract_structured_info(self, message: str, state: LeaveRequestState):
+        """Extract deterministic info from message without trusting LLM."""
+        import re
+
+        # days
+        m = re.search(r"(\d+)\s*(day|days)", message.lower())
+        if m:
+            state.num_days = int(m.group(1))
+
+        # leave types
+        for lt in ["pto", "sick leave", "privilege leave", "casual leave"]:
+            if lt in message.lower():
+                state.leave_type = lt.title()
+
+        # date naive detection
+        if "tomorrow" in message.lower():
+            from datetime import datetime, timedelta
+
+            state.start_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
     def _prune_sessions(self) -> None:
         """
@@ -135,14 +168,35 @@ class LeaveAssistantAgent:
         while len(self.conversations) > settings.max_sessions:
             self.conversations.popitem(last=False)
 
+        for sid in list(self.session_state.keys()):
+            if sid not in self.conversations:
+                del self.session_state[sid]
+
     def _extract_employee_id_from_message(self, message: str) -> str | None:
         """
         Extract any employee id mentioned in the user message.
 
         We treat ANY referenced employee id as a potential access attempt.
         """
-        match = re.search(r"\bE\d{3,}\b", message)
+        match = EMPLOYEE_ID_PATTERN.search(message)
         return match.group(0) if match else None
+
+    def _response_contains_decision(self, text: str) -> bool:
+        """Detect if model produced an approval/denial without tool usage."""
+        text = text.lower()
+
+        decision_patterns = [
+            "approved",
+            "not approved",
+            "eligible",
+            "not eligible",
+            "you can take",
+            "you cannot take",
+            "you may take",
+            "request is valid",
+        ]
+
+        return any(p in text for p in decision_patterns)
 
     def _requires_verified_data(self, message: str) -> bool:
         """
@@ -163,6 +217,14 @@ class LeaveAssistantAgent:
             r"\bsick leave",
             r"\bprivilege leave",
             r"\bpolicy",
+            r"\bremaining\b",
+            r"\bleft\b",
+            r"\bdays available\b",
+            r"\bapply leave\b",
+            r"\bbook leave\b",
+            r"\btake off\b",
+            r"\bvacation\b",
+            r"\bholiday\b",
         ]
 
         return any(re.search(p, message) for p in patterns)
@@ -208,39 +270,53 @@ class LeaveAssistantAgent:
                 return "Access denied: you can only request your own leave information."
 
             set_request_context(session_id, employee_id)
+            try:
+                state = self.session_state.setdefault(session_id, LeaveRequestState())
+                self._extract_structured_info(message, state)
 
-            # Run agent with conversation history
-            response = self.agent.run(messages=self.conversations[session_id])
+                if self._requires_verified_data(message) and "can i take" in message.lower():
+                    missing = state.missing_fields()
+                    questions = {
+                        "leave_type": "Which type of leave is this (PTO, Sick Leave, etc)?",
+                        "start_date": "When should the leave start?",
+                        "num_days": "How many days do you want?",
+                    }
+                    if missing:
+                        return questions.get(missing[0], "Could you clarify your request?")
 
-            # Extract response content
-            if isinstance(response, dict):
-                response_text = response.get("content", str(response))
-            else:
-                response_text = str(response)
+                # Run agent with conversation history
+                with trace_span("agent_run", session=session_id):
+                    response = self.agent.run(messages=messages)
 
-            messages.append({"role": "assistant", "content": response_text})
-            self.conversations[session_id]["messages"] = messages[-settings.max_history :]
+                # Extract response content
+                if isinstance(response, dict):
+                    response_text = response.get("content", str(response))
+                else:
+                    response_text = str(response)
 
-            # Tool Enforcement
-            tools_used = get_tools_called()
-            if self._requires_verified_data(message) and not tools_used:
-                logger.warning(
-                    "Blocked response: model attempted to answer without tool usage "
-                    f"(session={session_id})"
-                )
+                # Tool Enforcement
+                tools_used = get_tools_called()
+                decision_like = self._response_contains_decision(response_text)
 
-                safe_response = (
-                    "I need to verify this using official company records before answering. "
-                    "Please ask again — I will check the policy data."
-                )
+                if (self._requires_verified_data(message) or decision_like) and not tools_used:
+                    logger.warning(
+                        "Blocked response: model attempted to answer without tool usage "
+                        f"(session={session_id})"
+                    )
 
-                return safe_response
+                    safe_response = "Let me verify that for you."
 
-            # Add assistant response to history
-            self.conversations[session_id].append({"role": "assistant", "content": response_text})
+                    return safe_response
 
-            logger.info(f"Agent response generated for session {session_id}")
-            return response_text
+                messages.append({"role": "assistant", "content": response_text})
+                self.conversations[session_id]["messages"] = messages[-settings.max_history :]
+                self.conversations[session_id]["ts"] = time.time()
+
+                logger.info(f"Agent response generated for session {session_id}")
+                return response_text
+
+            finally:
+                clear_request_context()
 
         except Exception as e:
             logger.error(f"Error in agent.chat: {str(e)}", exc_info=True)
@@ -249,9 +325,6 @@ class LeaveAssistantAgent:
                 "Please try again or contact HR support if the issue persists."
             )
             return error_msg
-
-        finally:
-            clear_request_context()
 
     def reset_conversation(self, session_id: str):
         """Reset conversation history for a session."""

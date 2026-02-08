@@ -34,4 +34,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
  sys.exit(0 if urllib.request.urlopen('http://localhost:'+p+'/health',timeout=3).getcode()==200 else 1)"
 
 # Run application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["sh", "-c", "uvicorn src.main:app --host 0.0.0.0 --port ${PORT}"]

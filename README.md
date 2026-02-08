@@ -200,6 +200,49 @@ This prevents hallucinated policy decisions.
 
 ---
 
+
+## Failure Modes Considered
+
+LLM systems fail in predictable ways.  
+This project explicitly defends against them.
+
+| Failure Mode | Risk | Mitigation |
+|------------|----|----|
+| Hallucinated policy decision | Incorrect HR guidance | Tool execution enforcement (responses rejected if no tool called) |
+| Cross employee data access | Privacy breach | Session → employee binding + tool validation |
+| Prompt injection | Guardrail bypass | Input sanitization + post-generation validation |
+| Database outage | Service crash | Circuit breaker + mock fallback |
+| Infinite conversation growth | Memory exhaustion | TTL + bounded session history |
+| Model overconfidence | False approvals | LLM never computes eligibility — tools only |
+
+The agent prioritizes **correctness over helpfulness**.
+
+---
+
+
+## Security Testing
+
+Beyond unit tests, the system includes adversarial tests validating
+architectural guarantees.
+
+Validated attacks:
+
+- cross employee data retrieval
+- tool bypass attempts
+- prompt injection
+- identity impersonation
+
+Run:
+```bash
+pytest tests/test_security_attacks.py -v
+```
+
+These tests ensure the agent cannot produce unsafe HR decisions even if
+the LLM behaves incorrectly.
+
+
+---
+
 ## Tech Stack
 
 | Layer           | Technology         |
