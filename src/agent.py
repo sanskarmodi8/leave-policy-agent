@@ -96,10 +96,11 @@ class LeaveAssistantAgent:
         logger.info("Initializing LeaveAssistantAgent")
 
         # Initialize LiteLLM model
-        self.model = LiteLlm(
-            model=settings.litellm_model,
-            api_key=settings.openai_api_key,
-        )
+        if settings.openai_api_key:
+            self.model = LiteLlm(model=settings.litellm_model, api_key=settings.openai_api_key)
+        else:
+            logger.warning("Running in DEMO MODE — LLM disabled")
+            self.model = LiteLlm(model="gpt-4o-mini", api_key="demo")
 
         # Create agent
         self.agent = Agent(
