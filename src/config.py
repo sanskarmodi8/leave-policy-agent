@@ -1,0 +1,41 @@
+"""
+Configuration management using Pydantic Settings.
+Reads from environment variables.
+"""
+
+from pydantic import Field
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    """Application settings."""
+
+    # LLM Configuration
+    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+    litellm_model: str = Field(default="gpt-4", alias="LITELLM_MODEL")
+
+    # Snowflake Configuration
+    snowflake_account: str = Field(default="", alias="SNOWFLAKE_ACCOUNT")
+    snowflake_user: str = Field(default="", alias="SNOWFLAKE_USER")
+    snowflake_password: str = Field(default="", alias="SNOWFLAKE_PASSWORD")
+    snowflake_warehouse: str = Field(default="", alias="SNOWFLAKE_WAREHOUSE")
+    snowflake_database: str = Field(default="", alias="SNOWFLAKE_DATABASE")
+    snowflake_schema: str = Field(default="", alias="SNOWFLAKE_SCHEMA")
+
+    # Application Configuration
+    environment: str = Field(default="development", alias="ENVIRONMENT")
+    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+
+    # Circuit Breaker Configuration
+    circuit_breaker_failure_threshold: int = Field(
+        default=5, alias="CIRCUIT_BREAKER_FAILURE_THRESHOLD"
+    )
+    circuit_breaker_timeout: int = Field(default=60, alias="CIRCUIT_BREAKER_TIMEOUT")
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+
+
+# Global settings instance
+settings = Settings()

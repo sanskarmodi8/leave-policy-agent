@@ -47,6 +47,8 @@ target-version = ["py312"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+
+[tool.ruff.lint]
 select = ["E","F","I","B","UP","ASYNC"]
 ignore = ["E501"]
 
@@ -57,9 +59,6 @@ addopts = "-q"
 
 [tool.isort]
 profile = "black"
-
-[tool.ruff.lint]
-select = ["E","F","I","B","UP","ASYNC"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
