@@ -608,8 +608,8 @@ pytest tests/test_hybrid_architecture.py -v
 
 ### Coverage Goals
 
-- **Target:** 90%+ overall coverage
-- **Critical paths:** 95%+ (tools, callbacks, security)
+- **Target:** 80%+ overall coverage
+- **Critical paths:** 90%+ (tools, callbacks, security)
 
 ### Example Test Scenarios
 
