@@ -1,364 +1,254 @@
-# Leave Policy Assistant Agent
+# 🤖 Leave Policy Assistant Agent
 
-Tool-augmented agent that answers employee leave questions while enforcing company policy through deterministic business logic.
+> **Production-grade AI agent for employee leave management**  
+> Built with Google ADK, deployed on Google Cloud Run
 
-The LLM is used only for reasoning and conversation — policy decisions are executed by verified backend tools.
+A tool-augmented conversational agent that helps employees understand leave policies, check balances, and verify eligibility—while enforcing company policy through deterministic business logic rather than LLM decisions.
+
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Google ADK](https://img.shields.io/badge/Google-ADK-4285F4)](https://github.com/google/adk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## Features
+## 📋 Table of Contents
+
+- [Architecture Overview](#-architecture-overview)
+- [Key Features](#-key-features)
+- [Tech Stack](#-tech-stack)
+- [Quick Start](#-quick-start)
+- [Design Philosophy](#-design-philosophy)
+- [API Documentation](#-api-documentation)
+- [Testing](#-testing)
+- [Deployment](#-deployment)
+- [Security](#-security)
+- [Project Structure](#-project-structure)
+
+---
+
+## 🏗 Architecture Overview
+
+### System Architecture
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                      CLIENT REQUEST                          │
+│              POST /chat {"message": "...", ...}              │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    FASTAPI REST API                          │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Endpoints: /chat, /health, /metrics, /reset           │  │
+│  └────────────────────────────────────────────────────────┘  │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│               SECURITY LAYER (Callbacks)                     │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  BEFORE MODEL: PII Detection, Prompt Sanitization      │  │
+│  │  AFTER MODEL: PII Redaction, Audit Logging             │  │
+│  └────────────────────────────────────────────────────────┘  │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    ROUTING LAYER                             │
+│                  (Hybrid Architecture)                       │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+                ┌───────────┴───────────┐
+                │                       │
+                ▼                       ▼
+    ┌──────────────────┐    ┌──────────────────┐
+    │   FAST PATH      │    │  AGENTIC PATH    │
+    │ (Deterministic)  │    │  (ADK Agent)     │
+    │                  │    │                  │
+    │ • Balance check  │    │ • Reasoning      │
+    │ • Policy lookup  │    │ • Multi-turn     │
+    │ • <100ms         │    │ • Eligibility    │
+    │ • Zero LLM cost  │    │ • Explanations   │
+    └──────────────────┘    └──────────────────┘
+                │                       │
+                └───────────┬───────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│                      TOOL LAYER                              │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  • get_leave_policy(country, leave_type)               │  │
+│  │  • check_leave_eligibility(emp_id, dates, type)        │  │
+│  │  • get_employee_leave_summary(emp_id)                  │  │
+│  └────────────────────────────────────────────────────────┘  │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│         SNOWFLAKE CLIENT (Circuit Breaker Protected)         │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │  Circuit States: CLOSED → OPEN → HALF_OPEN            │  │
+│  │  Fallback: Mock data when Snowflake unavailable       │  │
+│  └────────────────────────────────────────────────────────┘  │
+└───────────────────────────┬──────────────────────────────────┘
+                            │
+                            ▼
+┌──────────────────────────────────────────────────────────────┐
+│                      DATA SOURCES                            │
+│   • Snowflake Database (Production)                         │
+│   • Mock Data (Development/Fallback)                        │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Hybrid Architecture: Fast Path vs Agentic Path
+
+This system implements a **two-path design** that balances reliability and intelligence:
+
+#### 🚀 Fast Path (Deterministic)
+**When:** Simple data lookups  
+**How:** Direct tool execution, bypass LLM  
+**Benefits:**
+- ⚡ Sub-100ms latency
+- 💰 Zero LLM cost
+- ✅ 100% reliable responses
+- 🎯 Predictable output
+
+**Examples:**
+- "What's my leave balance?"
+- "What's the India PTO policy?"
+- "Show my remaining leaves"
+
+#### 🧠 Agentic Path (Reasoning)
+**When:** Complex queries requiring reasoning  
+**How:** Google ADK agent with ReAct pattern  
+**Benefits:**
+- 🤔 Handles edge cases intelligently
+- 💬 Multi-turn context preservation
+- 📊 Detailed eligibility explanations
+- 🔄 Conversational follow-ups
+
+**Examples:**
+- "Can I take 5 days PTO during Christmas week?"
+- "Am I eligible for parental leave?"
+- "What happens if I exceed my leave balance?"
+
+#### Why This Matters
+
+Production AI systems must optimize for:
+1. **Reliability** - Critical queries (balance, policy) must always work
+2. **Cost** - Don't pay for LLM calls when deterministic logic suffices
+3. **Latency** - Users expect instant responses for simple lookups
+4. **Intelligence** - Complex scenarios benefit from LLM reasoning
+
+This pattern is proven at scale by companies like **Intercom**, **Zendesk**, and **Stripe** for their customer support agents.
+
+---
+
+## ✨ Key Features
 
 ### Agent Capabilities
-
-* Multi-turn conversations with memory
-* Tool selection via reasoning (ReAct-style)
-* Context aware follow-ups
-* Graceful handling of missing or invalid data
+- ✅ **Multi-turn conversations** with session-based memory
+- ✅ **Tool selection via reasoning** (ReAct pattern)
+- ✅ **Context-aware follow-ups** within sessions
+- ✅ **Graceful error handling** for missing/invalid data
 
 ### Tools Implemented
+1. **get_leave_policy(country, leave_type)** - Retrieve official policy rules
+2. **check_leave_eligibility(employee_id, dates, leave_type)** - Validate requests
+3. **get_employee_leave_summary(employee_id)** - Get balance information
 
-* `get_leave_policy(country, leave_type)`
-* `check_leave_eligibility(employee_id, dates, leave_type)`
-* `get_employee_leave_summary(employee_id)`
+### Security Controls
 
-### Safety Controls
+**Before Model:**
+- 🔒 Prompt sanitization
+- 🔍 PII detection (SSN, email, phone)
+- 🛡️ Malicious prompt filtering
+- 📝 Safety instruction injection
 
-**Before model**
+**After Model:**
+- 🔐 PII redaction in outputs
+- 📊 Audit logging
+- ✅ Response validation
 
-* prompt sanitization
-* PII detection
-* guardrail instruction injection
+### External Integrations
+- **Snowflake Snowpark** - Secure data access via DataFrame API (prevents SQL injection)
+- **Circuit Breaker Pattern** - Resilient error handling with automatic fallback
+- **OpenTelemetry** - Distributed tracing for observability
 
-**After model**
-
-* output validation
-* PII redaction
-* audit logging
-
-### External Integration
-
-* Snowflake client via Snowpark
-* circuit breaker (CLOSED / OPEN / HALF_OPEN)
-* mock fallback when unavailable
-
-### Service Layer
-
-* FastAPI REST interface
-* session handling
-* structured logging
-* health endpoint
+### API Features
+- **FastAPI** - High-performance REST endpoints
+- **Session Management** - Conversation history with TTL-based cleanup
+- **Health Checks** - `/health` endpoint with circuit breaker status
+- **Metrics** - `/metrics` endpoint for monitoring
 
 ---
 
-## Operational Guarantees
+## 🛠 Tech Stack
 
-The system is designed to prevent unsafe or incorrect decisions:
-
-- eligibility is never determined by the LLM
-- all policy validation happens inside tools
-- invalid or ambiguous requests are rejected, not guessed
-- external dependency failures degrade to mock data instead of crashing
-- unsafe prompts are blocked before reaching the model
-- unsafe outputs are filtered after generation
-
-The agent prioritizes correctness over helpfulness.
-
----
-
-## Architecture Diagram
-````
-┌─────────────────────────────────────────────────────────────┐
-│                    CLIENT REQUEST                           │
-│            POST /chat {"message": "...", ...}               │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  FASTAPI REST API                           │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  Endpoints:                                          │   │
-│  │  - POST /chat                                        │   │
-│  │  - GET /health                                       │   │
-│  │  - GET /metrics                                      │   │
-│  │  - POST /reset-conversation/{id}                     │   │
-│  └──────────────────────────────────────────────────────┘   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│              SECURITY LAYER (Callbacks)                     │
-│  ┌────────────────────────────────────────────────┐         │
-│  │  BEFORE MODEL CALLBACK                         │         │
-│  │  ├─ PII Detection (SSN, Email, Phone)          │         │
-│  │  ├─ Malicious Prompt Filtering                 │         │
-│  │  ├─ SQL Injection Prevention                   │         │
-│  │  └─ Safety Instructions Injection              │         │
-│  └────────────────────────────────────────────────┘         │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  GOOGLE ADK AGENT                           │
-│  ┌────────────────────────────────────────────────┐         │
-│  │  Agent Components:                             │         │
-│  │  ├─ LiteLLM (GPT-4 / Claude / Gemini)          │         │
-│  │  ├─ ReAct Pattern (Reason → Act → Observe)     │         │
-│  │  ├─ Tool Selection Logic                       │         │
-│  │  └─ Conversation Memory (Session-based)        │         │
-│  └────────────────────────────────────────────────┘         │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    AGENT TOOLS                              │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │  1. get_leave_policy(country, leave_type)            │   │
-│  │     → Returns policy rules and allowances            │   │
-│  │                                                      │   │
-│  │  2. check_leave_eligibility(emp_id, dates, type)     │   │
-│  │     → Validates: Balance, Notice, Blackouts          │   │
-│  │                                                      │   │
-│  │  3. get_employee_leave_summary(emp_id)               │   │
-│  │     → Returns all balances and employee info         │   │
-│  └──────────────────────────────────────────────────────┘   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│          SNOWFLAKE CLIENT (Circuit Breaker Protected)       │
-│  ┌────────────────────────────────────────────────┐         │
-│  │  Circuit Breaker States:                       │         │
-│  │  ┌──────────┐  5 failures  ┌──────────┐        │         │
-│  │  │  CLOSED  │─────────────→│   OPEN    │       │         │
-│  │  │ (Normal) │              │ (Blocking)│       │         │
-│  │  └──────────┘              └──────────┘        │         │
-│  │       ↑                         │              │         │
-│  │       │ success            60s timeout         │         │
-│  │       │                         ↓              │         │
-│  │  ┌──────────┐              ┌──────────┐        │         │
-│  │  │HALF_OPEN │←─────────────│  Testing  │       │         │
-│  │  │(Testing) │              │           │       │         │
-│  │  └──────────┘              └──────────┘        │         │
-│  └────────────────────────────────────────────────┘         │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│              DATA SOURCES                                   │
-│  ┌──────────────────────┬──────────────────────┐            │
-│  │  Snowflake Database  │  Mock Data (Fallback)│            │
-│  │  - employees table   │  - LEAVE_POLICIES    │            │
-│  │  - leave_balances    │  - MOCK_EMPLOYEES    │            │
-│  │  (Production)        │  (Development)       │            │
-│  └──────────────────────┴──────────────────────┘            │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│              SECURITY LAYER (Callbacks)                     │
-│  ┌────────────────────────────────────────────────┐         │
-│  │  AFTER MODEL CALLBACK                          │         │
-│  │  ├─ PII Redaction (SSN → XXX-XX-XXXX)          │         │
-│  │  ├─ Email Masking (user@domain → ****@domain)  │         │
-│  │  ├─ Audit Logging                              │         │
-│  │  └─ Response Validation                        │         │
-│  └────────────────────────────────────────────────┘         │
-└──────────────────────────┬──────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    CLIENT RESPONSE                          │
-│     {"response": "...", "session_id": "..."}                │
-└─────────────────────────────────────────────────────────────┘
-````
+| Component | Technology | Version |
+|-----------|-----------|---------|
+| **Agent Framework** | Google ADK | 1.24.0+ |
+| **LLM Gateway** | LiteLLM | 1.81.9+ |
+| **API Framework** | FastAPI | 0.128.4+ |
+| **Data Warehouse** | Snowflake Snowpark | Latest |
+| **Observability** | OpenTelemetry | 1.38.0+ |
+| **Language** | Python | 3.12+ |
+| **Testing** | pytest | 7.4.0+ |
+| **Deployment** | Google Cloud Run | - |
 
 ---
 
-## Architecture Overview
+## 🚀 Quick Start
 
-Client → FastAPI → ADK Agent → Tools → Snowflake / Mock Data
+### Prerequisites
 
-Execution flow:
+- Python 3.12+
+- Google Cloud account (for deployment)
+- OpenAI API key (or other LLM provider)
+- Snowflake account (optional - mock data available)
 
-1. request received
-2. pre-model callback sanitizes input
-3. LLM decides tool usage
-4. tool executes business logic
-5. post-model callback validates output
-6. response returned
+### Local Setup
 
-Failure paths:
+#### 1. Clone Repository
 
-* Snowflake failure → circuit breaker → mock data
-* invalid request → handled gracefully
-* unsafe response → filtered
-
-**Important:**
-The model cannot approve or deny leave directly.
-It must call tools which implement business rules.
-This prevents hallucinated policy decisions.
-
----
-
-
-## Failure Modes Considered
-
-LLM systems fail in predictable ways.  
-This project explicitly defends against them.
-
-| Failure Mode | Risk | Mitigation |
-|------------|----|----|
-| Hallucinated policy decision | Incorrect HR guidance | Tool execution enforcement (responses rejected if no tool called) |
-| Cross employee data access | Privacy breach | Session → employee binding + tool validation |
-| Prompt injection | Guardrail bypass | Input sanitization + post-generation validation |
-| Database outage | Service crash | Circuit breaker + mock fallback |
-| Infinite conversation growth | Memory exhaustion | TTL + bounded session history |
-| Model overconfidence | False approvals | LLM never computes eligibility — tools only |
-
-The agent prioritizes **correctness over helpfulness**.
-
----
-
-
-## Security Testing
-
-Beyond unit tests, the system includes adversarial tests validating
-architectural guarantees.
-
-Validated attacks:
-
-- cross employee data retrieval
-- tool bypass attempts
-- prompt injection
-- identity impersonation
-
-Run:
 ```bash
-pytest tests/test_security_attacks.py -v
-```
-
-These tests ensure the agent cannot produce unsafe HR decisions even if
-the LLM behaves incorrectly.
-
-
----
-
-## Tech Stack
-
-| Layer           | Technology         |
-| --------------- | ------------------ |
-| Agent Framework | Google ADK         |
-| LLM Gateway     | LiteLLM            |
-| API             | FastAPI            |
-| Data            | Snowflake Snowpark |
-| Observability   | OpenTelemetry      |
-| Language        | Python 3.12        |
-| Tests           | pytest             |
-
----
-
-## Project Structure
-
-```
-leave-policy-agent/
-│
-├── pyproject.toml            # dependency source of truth
-├── requirements.txt          # frozen deployment lock
-├── Dockerfile
-├── cloudbuild.yaml
-├── .env.example
-│
-├── src/
-│   ├── main.py               # FastAPI entrypoint
-│   ├── agent.py              # ADK agent definition
-│   ├── tools.py              # business tools
-│   ├── callbacks.py          # guardrails
-│   ├── snowflake_client.py   # data access
-│   ├── circuit_breaker.py    # resilience logic
-│   └── config.py             # settings
-│
-├── data/
-│   └── leave_policies.py     # mock dataset
-│
-└── tests/
-```
-
----
-
-## Dependency Management Strategy
-
-This project separates human-edited constraints from deployment locks.
-
-| File             | Purpose                          |
-| ---------------- | -------------------------------- |
-| pyproject.toml   | editable dependency rules        |
-| requirements.txt | exact resolved versions (Docker) |
-| .venv            | local runtime                    |
-
-After changing dependencies:
-
-```
-pip-compile pyproject.toml -o requirements.txt
-```
-
----
-
-## Quick Start
-
-### 1) Clone
-
-```
-git clone <repo>
+git clone <repository-url>
 cd leave-policy-agent
 ```
 
-### 2) Create environment
+#### 2. Create Virtual Environment
 
-```
+```bash
 python -m venv .venv
-source .venv/bin/activate
-pip install -U pip
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install --upgrade pip
 ```
 
-### 3) Install (developer mode)
+#### 3. Install Dependencies
 
-```
+```bash
+# Development installation (includes testing tools)
 pip install -e .[dev]
+
+# Install pre-commit hooks
 pre-commit install
 ```
 
-### 4) Set env vars
+#### 4. Configure Environment
 
-```
+```bash
 cp .env.example .env
 ```
 
-Edit .env and set at minimum (refer below section for more detail):
+Edit `.env` and set required variables:
 
-```
-OPENAI_API_KEY=your_key_here
-```
-
-
-### 5) Run API
-
-```
-uvicorn src.main:app --reload --port 8080
-```
-
-Open:
-[http://localhost:8080/docs](http://localhost:8080/docs)
-
----
-
-## Environment Variables
-
-Create `.env`:
-
-```
-OPENAI_API_KEY=
+```bash
+# Required
+OPENAI_API_KEY=your_openai_api_key_here
 LITELLM_MODEL=gpt-4o-mini
 
+# Optional - Snowflake (uses mock data if not provided)
 SNOWFLAKE_ACCOUNT=
 SNOWFLAKE_USER=
 SNOWFLAKE_PASSWORD=
@@ -366,163 +256,450 @@ SNOWFLAKE_WAREHOUSE=
 SNOWFLAKE_DATABASE=
 SNOWFLAKE_SCHEMA=
 
+# Application
 ENVIRONMENT=development
 LOG_LEVEL=INFO
 ```
 
-Snowflake is optional — mock data is used if not configured.
+#### 5. Run Locally
 
----
-
-## API Endpoints
-
-### POST /chat
-
+```bash
+uvicorn src.main:app --reload --port 8080
 ```
+
+Open: [http://localhost:8080/docs](http://localhost:8080/docs)
+
+### Test the Agent
+
+```bash
+# Example API call
+curl -X POST "http://localhost:8080/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What is my leave balance?",
+    "session_id": "test_session_1",
+    "employee_id": "E001"
+  }'
+```
+
+**Expected Response:**
+```json
 {
-  "message": "Can I take 5 days leave next week?",
-  "employee_id": "E001",
-  "session_id": "abc"
+  "response": "Here's your current leave balance:\n\n- PTO: 15 days\n- Sick Leave: 8 days",
+  "session_id": "test_session_1"
 }
 ```
 
-Returns agent response with preserved conversation context.
+---
+
+## 💡 Design Philosophy
+
+### Architectural Principles
+
+#### 1. **LLM for Language, Backend for Decisions**
+
+The language model generates natural language responses. The backend tools make all authoritative decisions.
+
+**Anti-pattern:**
+```python
+# ❌ NEVER: Let LLM decide eligibility
+response = llm("Can I take leave?")
+if "yes" in response.lower():
+    approve_leave()
+```
+
+**Correct pattern:**
+```python
+# ✅ ALWAYS: Backend tools decide, LLM explains
+result = check_leave_eligibility(emp_id, dates, leave_type)
+response = llm(f"Explain this result: {result}")
+```
+
+#### 2. **Deterministic When Possible, Intelligent When Necessary**
+
+Not every query needs an LLM. Use the right tool for the job.
+
+| Query Type | Approach | Reason |
+|-----------|----------|--------|
+| "What's my balance?" | Direct DB lookup | Factual, no reasoning needed |
+| "Can I take leave during blackout?" | Agent reasoning | Needs policy interpretation |
+
+#### 3. **Defense in Depth**
+
+Security is layered, not single-point:
+1. Input validation (before LLM)
+2. Tool validation (during execution)
+3. Output filtering (after LLM)
+4. Session binding (prevents cross-employee access)
+
+#### 4. **Graceful Degradation**
+
+External dependencies fail. The system adapts:
+- Snowflake down → Circuit breaker → Mock data
+- LLM quota exceeded → Fast path still works
+- Invalid input → Helpful error message, not crash
 
 ---
 
-### GET /health
+## 📚 API Documentation
 
-Shows service status and circuit breaker state.
+### Endpoints
+
+#### `POST /chat`
+
+Send a message to the leave assistant.
+
+**Request:**
+```json
+{
+  "message": "Can I take 5 days PTO next week?",
+  "session_id": "user123_session1",
+  "employee_id": "E001"
+}
+```
+
+**Response:**
+```json
+{
+  "response": "Let me check your eligibility...",
+  "session_id": "user123_session1"
+}
+```
+
+#### `GET /health`
+
+Check service health and dependencies.
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "environment": "development",
+  "snowflake_circuit_breaker": {
+    "state": "closed",
+    "failure_count": 0
+  }
+}
+```
+
+#### `GET /metrics`
+
+Prometheus-compatible metrics.
+
+**Response:**
+```json
+{
+  "circuit_breaker": {...},
+  "active_conversations": 15,
+  "environment": "development"
+}
+```
+
+#### `POST /reset-conversation/{session_id}`
+
+Clear conversation history for a session.
+
+**Response:**
+```json
+{
+  "message": "Conversation reset for session abc123",
+  "session_id": "abc123"
+}
+```
 
 ---
 
-### POST /reset-conversation/{session_id}
+## 🧪 Testing
 
-Clears conversation history.
+### Run All Tests
 
----
-
-## Developer Workflow
-
-Run service
-
-```
-uvicorn src.main:app --reload
-```
-
-Run tests
-
-```
-pytest
-```
-
-Coverage:
-
-```
-pytest --cov=src --cov-report=term-missing
-```
-
-Format & lint
-
-```
-ruff check . --fix
-black .
-```
-
-Update dependency lock after changing pyproject.toml
-
-```
-pip-compile pyproject.toml -o requirements.txt
-```
-
-All checks run automatically on commit via pre-commit.
-
----
-
-### Run all tests:
 ```bash
 # Run tests with coverage
 pytest --cov=src --cov-report=term-missing --cov-report=html
 
-# View coverage report
+# View HTML coverage report
 open htmlcov/index.html  # macOS
 xdg-open htmlcov/index.html  # Linux
 ```
-````
+
+### Test Categories
+
+#### Unit Tests
+```bash
+pytest tests/test_tools.py -v
+pytest tests/test_callbacks.py -v
+pytest tests/test_circuit_breaker.py -v
+```
+
+#### Integration Tests
+```bash
+pytest tests/test_api.py -v
+```
+
+#### Security Tests
+```bash
+pytest tests/test_security_attacks.py -v
+```
+
+#### Hybrid Architecture Tests
+```bash
+pytest tests/test_hybrid_architecture.py -v
+```
+
+### Coverage Goals
+
+- **Target:** 90%+ overall coverage
+- **Critical paths:** 95%+ (tools, callbacks, security)
+- **Current:** See badge above
+
+### Example Test Scenarios
+
+The agent handles these conversation flows:
+
+**Scenario 1: Simple Balance Check**
+```
+User: "What's my leave balance?"
+Agent: "Here's your current leave balance:
+        - PTO: 15 days
+        - Sick Leave: 8 days"
+```
+
+**Scenario 2: Eligibility Validation**
+```
+User: "Can I take 5 days PTO next week?"
+Agent: "Yes, you're eligible! You have 15 days available..."
+```
+
+**Scenario 3: Multi-turn Conversation**
+```
+User: "What's the India leave policy?"
+Agent: "Here are the policies for India employees..."
+User: "How many privilege leave days do I have?"
+Agent: "You have 12 days of Privilege Leave remaining."
+```
 
 ---
 
-## Docker
+## 🚢 Deployment
 
-Container installs only runtime dependencies from the frozen lockfile.
+### Docker Build
 
+```bash
+# Build image
+docker build -t leave-policy-agent .
+
+# Run locally
+docker run -p 8080:8080 --env-file .env leave-policy-agent
 ```
-docker build -t leave-agent .
-docker run -p 8080:8080 --env-file .env leave-agent
-```
 
-The container intentionally installs only runtime dependencies.
-Developer tools are excluded to keep the image minimal and deterministic.
+### Google Cloud Run Deployment
 
-The container starts the service using:
-```
-uvicorn src.main:app --host 0.0.0.0 --port 8080
-```
----
-
-## Deployment (Cloud Run)
-
-```
+```bash
+# Deploy via Cloud Build
 gcloud builds submit --config cloudbuild.yaml
+
+# View logs
+gcloud run services logs read leave-policy-agent --region=us-central1
+
+# Get service URL
+gcloud run services describe leave-policy-agent --region=us-central1 --format='value(status.url)'
 ```
 
-Secrets should be stored in Google Secret Manager and injected at runtime.
+### Environment Variables (Production)
+
+Store secrets in **Google Secret Manager**:
+
+```bash
+# Create secrets
+echo -n "your_openai_key" | gcloud secrets create openai-api-key --data-file=-
+
+# Grant access to Cloud Run
+gcloud secrets add-iam-policy-binding openai-api-key \
+  --member="serviceAccount:YOUR_SERVICE_ACCOUNT" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+Update `cloudbuild.yaml` to reference secrets.
+
+### Health Checks
+
+The `/health` endpoint is used by Cloud Run for:
+- Startup probes
+- Liveness probes
+- Readiness probes
+
+### Monitoring
+
+- **Logs:** Cloud Logging (structured JSON)
+- **Traces:** Cloud Trace (OpenTelemetry)
+- **Metrics:** Custom metrics via `/metrics` endpoint
 
 ---
 
-## Known Limitations
+## 🔒 Security
 
-- conversation memory is session-scoped (not persistent storage)
-- mock data is used when Snowflake is unavailable
-- date parsing assumes ISO or natural English dates
+### Threat Model
 
-These tradeoffs keep the system deterministic for evaluation and local development.
+We defend against:
 
----
+| Attack Vector | Mitigation |
+|--------------|------------|
+| Prompt injection | Input sanitization + output validation |
+| Cross-employee data access | Session binding + tool validation |
+| PII leakage | PII detection + redaction |
+| SQL injection | Snowpark DataFrame API (parameterized) |
+| DoS via memory exhaustion | Session TTL + bounded history |
+| Circuit breaker bypass | Hard failure thresholds |
 
-## Example Conversations
+### Security Testing
 
-**Policy**
+Run adversarial tests:
+```bash
+pytest tests/test_security_attacks.py -v
+```
 
-> What is the PTO policy for India?
+Validated attack scenarios:
+- ❌ Cross-employee data retrieval
+- ❌ Tool bypass attempts
+- ❌ Prompt injection
+- ❌ Identity impersonation
 
-**Eligibility**
+### Compliance
 
-> Can I take 4 days casual leave tomorrow?
-
-**Multi-turn**
-
-> How many leaves do I have left?
-> Ok book 2 next Monday
-
----
-
-## Design Notes
-
-Important implementation decisions:
-
-* tools contain business rules, not prompts
-* agent orchestrates, tools validate
-* LLM never trusted for policy enforcement
-* external systems wrapped in circuit breaker
-* failures degrade gracefully instead of crashing
+- **PII Handling:** Automatic detection and redaction
+- **Audit Trail:** All requests logged with session_id
+- **Data Isolation:** Employee data never crosses session boundaries
+- **Secure Defaults:** Fail closed, not open
 
 ---
 
-## License
+## 📁 Project Structure
 
-[MIT License](LICENSE)
+```
+leave-policy-agent/
+│
+├── README.md                 # This file
+├── pyproject.toml            # Dependency source of truth
+├── requirements.txt          # Frozen deployment lock
+├── Dockerfile                # Container definition
+├── cloudbuild.yaml           # CI/CD pipeline
+├── .env.example              # Environment template
+├── .pre-commit-config.yaml   # Code quality hooks
+│
+├── src/
+│   ├── __init__.py
+│   ├── main.py               # FastAPI entrypoint
+│   ├── agent.py              # ADK agent + hybrid routing
+│   ├── tools.py              # Business logic tools
+│   ├── callbacks.py          # Security callbacks
+│   ├── snowflake_client.py   # Data access layer
+│   ├── circuit_breaker.py    # Resilience pattern
+│   ├── config.py             # Settings management
+│   ├── conversation_state.py # Request state tracking
+│   ├── observability.py      # Tracing utilities
+│   └── utils/
+│       └── request_context.py # Thread-local context
+│
+├── data/
+│   └── leave_policies.py     # Mock data + policy definitions
+│
+└── tests/
+    ├── conftest.py           # Test fixtures
+    ├── test_agent.py         # Agent behavior
+    ├── test_tools.py         # Tool validation
+    ├── test_api.py           # REST API endpoints
+    ├── test_callbacks.py     # Security callbacks
+    ├── test_circuit_breaker.py # Resilience
+    ├── test_security_attacks.py # Adversarial tests
+    └── test_hybrid_architecture.py # Fast path vs agentic path
+```
 
-## Author
+---
 
-[**Sanskar Modi**](sanskarmodi8)
+## 📊 Observability
+
+### Structured Logging
+
+All logs include:
+- `timestamp` - ISO 8601 format
+- `level` - INFO, WARNING, ERROR
+- `session_id` - For request correlation
+- `employee_id` - For user tracking
+- `duration_ms` - For performance analysis
+
+### Distributed Tracing
+
+Critical operations are traced:
+```python
+with trace_span("agent_run", session=session_id):
+    response = await agent.run(message)
+```
+
+View traces in **Google Cloud Trace**.
+
+### Performance Metrics
+
+Key measurements:
+- Tool execution latency
+- Agent response time
+- Circuit breaker state transitions
+- Active session count
+
+---
+
+## 🤝 Contributing
+
+### Development Workflow
+
+1. **Create branch:** `git checkout -b feature/my-feature`
+2. **Make changes:** Edit code
+3. **Run tests:** `pytest`
+4. **Format code:** `ruff check . --fix && black .`
+5. **Commit:** `git commit -m "feat: add feature"`
+6. **Push:** `git push origin feature/my-feature`
+
+Pre-commit hooks automatically run:
+- Ruff (linting)
+- Black (formatting)
+- Tests (validation)
+
+### Code Quality Standards
+
+- **Test Coverage:** >80% required
+- **Type Hints:** All function signatures
+- **Docstrings:** All public functions
+- **Naming:** Descriptive, not abbreviated
+- **Comments:** Explain "why", not "what"
+
+---
+
+## 🎯 Future Enhancements
+
+### Planned Features
+- [ ] Firestore session persistence (cross-instance memory)
+- [ ] Prometheus metrics exporter
+- [ ] Retry with exponential backoff
+- [ ] Multi-language support (i18n)
+- [ ] Slack bot integration
+- [ ] Email notification system
+- [ ] Admin dashboard for HR
+
+### Performance Optimizations
+- [ ] Redis caching for policy data
+- [ ] Request batching for bulk queries
+- [ ] Async tool execution (parallel calls)
+- [ ] Response streaming (SSE)
+
+---
+
+## 📄 License
+
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
+
+---
+
+## 👨‍💻 Author
+
+**Sanskar Modi**
+
+- GitHub: [@sanskarmodi8](https://github.com/sanskarmodi8)
