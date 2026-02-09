@@ -11,17 +11,77 @@ A tool-augmented conversational agent that helps employees understand leave poli
 
 ---
 
+## 🚀 Live Demo
+
+**Base URL:**
+```
+https://leave-policy-agent-641772618787.us-central1.run.app
+```
+
+**Try it now:**
+
+```bash
+# Check employee leave balance
+curl -X POST https://leave-policy-agent-641772618787.us-central1.run.app/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What is my leave balance?",
+    "session_id": "demo_session",
+    "employee_id": "E001"
+  }'
+
+# Get leave policy information
+curl -X POST https://leave-policy-agent-641772618787.us-central1.run.app/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What is the US PTO policy?",
+    "session_id": "demo_session_2",
+    "employee_id": "E001"
+  }'
+
+# Check eligibility for leave request
+curl -X POST https://leave-policy-agent-641772618787.us-central1.run.app/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "Can I take 5 days PTO next week?",
+    "session_id": "demo_session_3",
+    "employee_id": "E001"
+  }'
+```
+
+**Health & Monitoring:**
+
+```bash
+# Health check
+curl https://leave-policy-agent-641772618787.us-central1.run.app/health
+
+# Metrics
+curl https://leave-policy-agent-641772618787.us-central1.run.app/metrics
+
+# API documentation
+open https://leave-policy-agent-641772618787.us-central1.run.app/docs
+```
+
+**Demo Employees:**
+- `E001` - John Doe (US employee, Engineering)
+- `E002` - Priya Sharma (India employee, Marketing)
+
+---
+
 ## 📋 Table of Contents
 
+- [Live Demo](#-live-demo)
 - [Architecture Overview](#-architecture-overview)
 - [Key Features](#-key-features)
 - [Tech Stack](#-tech-stack)
 - [Quick Start](#-quick-start)
+- [Cloud Deployment](#-cloud-deployment)
 - [Design Philosophy](#-design-philosophy)
 - [API Documentation](#-api-documentation)
 - [Testing](#-testing)
-- [Deployment](#-deployment)
 - [Security](#-security)
+- [Cost Characteristics](#-cost-characteristics)
+- [Production Notes](#-production-notes)
 - [Project Structure](#-project-structure)
 
 ---
@@ -285,9 +345,109 @@ curl -X POST "http://localhost:8080/chat" \
 **Expected Response:**
 ```json
 {
-  "response": "Here's your current leave balance:\n\n- PTO: 15 days\n- Sick Leave: 8 days",
+  "response": "Here's your current leave balance:\n\n• PTO: 15 days\n• Sick Leave: 8 days",
   "session_id": "test_session_1"
 }
+```
+
+---
+
+## ☁️ Cloud Deployment
+
+### First-Time Google Cloud Setup
+
+#### 1. Prerequisites
+
+```bash
+# Install Google Cloud SDK
+# https://cloud.google.com/sdk/docs/install
+
+# Authenticate
+gcloud auth login
+
+# Set your project
+gcloud config set project YOUR_PROJECT_ID
+
+# Enable required APIs
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com
+```
+
+#### 2. Create and Configure Secrets
+
+```bash
+# Create OpenAI API key secret
+echo -n "your_openai_api_key" | gcloud secrets create openai-api-key --data-file=-
+
+# Get your project number
+PROJECT_NUMBER=$(gcloud projects describe $(gcloud config get-value project) --format='value(projectNumber)')
+
+# Grant Cloud Run access to secrets
+gcloud secrets add-iam-policy-binding openai-api-key \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+#### 3. Build and Push Container
+
+```bash
+# Build using Cloud Build
+gcloud builds submit --config cloudbuild.yaml
+
+# Or build locally and push
+docker build -t gcr.io/$(gcloud config get-value project)/leave-policy-agent:latest .
+docker push gcr.io/$(gcloud config get-value project)/leave-policy-agent:latest
+```
+
+#### 4. Deploy to Cloud Run
+
+```bash
+gcloud run deploy leave-policy-agent \
+  --image gcr.io/$(gcloud config get-value project)/leave-policy-agent:latest \
+  --region us-central1 \
+  --platform managed \
+  --allow-unauthenticated \
+  --memory 512Mi \
+  --cpu 1 \
+  --max-instances 5 \
+  --set-env-vars=ENVIRONMENT=production,LOG_LEVEL=INFO \
+  --update-secrets=OPENAI_API_KEY=openai-api-key:latest
+```
+
+#### 5. Get Service URL
+
+```bash
+gcloud run services describe leave-policy-agent \
+  --region=us-central1 \
+  --format='value(status.url)'
+```
+
+### Monitoring Deployment
+
+```bash
+# View logs
+gcloud run services logs read leave-policy-agent --region=us-central1 --limit=50
+
+# Check service status
+gcloud run services describe leave-policy-agent --region=us-central1
+
+# View metrics in Cloud Console
+open "https://console.cloud.google.com/run/detail/us-central1/leave-policy-agent/metrics"
+```
+
+### Update Deployment
+
+```bash
+# Rebuild and redeploy
+gcloud builds submit --config cloudbuild.yaml
+
+# Or update specific settings
+gcloud run services update leave-policy-agent \
+  --region us-central1 \
+  --memory 1Gi
 ```
 
 ---
@@ -374,7 +534,7 @@ Check service health and dependencies.
 ```json
 {
   "status": "healthy",
-  "environment": "development",
+  "environment": "production",
   "snowflake_circuit_breaker": {
     "state": "closed",
     "failure_count": 0
@@ -391,7 +551,7 @@ Prometheus-compatible metrics.
 {
   "circuit_breaker": {...},
   "active_conversations": 15,
-  "environment": "development"
+  "environment": "production"
 }
 ```
 
@@ -450,7 +610,6 @@ pytest tests/test_hybrid_architecture.py -v
 
 - **Target:** 90%+ overall coverage
 - **Critical paths:** 95%+ (tools, callbacks, security)
-- **Current:** See badge above
 
 ### Example Test Scenarios
 
@@ -460,8 +619,8 @@ The agent handles these conversation flows:
 ```
 User: "What's my leave balance?"
 Agent: "Here's your current leave balance:
-        - PTO: 15 days
-        - Sick Leave: 8 days"
+        • PTO: 15 days
+        • Sick Leave: 8 days"
 ```
 
 **Scenario 2: Eligibility Validation**
@@ -477,62 +636,6 @@ Agent: "Here are the policies for India employees..."
 User: "How many privilege leave days do I have?"
 Agent: "You have 12 days of Privilege Leave remaining."
 ```
-
----
-
-## 🚢 Deployment
-
-### Docker Build
-
-```bash
-# Build image
-docker build -t leave-policy-agent .
-
-# Run locally
-docker run -p 8080:8080 --env-file .env leave-policy-agent
-```
-
-### Google Cloud Run Deployment
-
-```bash
-# Deploy via Cloud Build
-gcloud builds submit --config cloudbuild.yaml
-
-# View logs
-gcloud run services logs read leave-policy-agent --region=us-central1
-
-# Get service URL
-gcloud run services describe leave-policy-agent --region=us-central1 --format='value(status.url)'
-```
-
-### Environment Variables (Production)
-
-Store secrets in **Google Secret Manager**:
-
-```bash
-# Create secrets
-echo -n "your_openai_key" | gcloud secrets create openai-api-key --data-file=-
-
-# Grant access to Cloud Run
-gcloud secrets add-iam-policy-binding openai-api-key \
-  --member="serviceAccount:YOUR_SERVICE_ACCOUNT" \
-  --role="roles/secretmanager.secretAccessor"
-```
-
-Update `cloudbuild.yaml` to reference secrets.
-
-### Health Checks
-
-The `/health` endpoint is used by Cloud Run for:
-- Startup probes
-- Liveness probes
-- Readiness probes
-
-### Monitoring
-
-- **Logs:** Cloud Logging (structured JSON)
-- **Traces:** Cloud Trace (OpenTelemetry)
-- **Metrics:** Custom metrics via `/metrics` endpoint
 
 ---
 
@@ -570,6 +673,109 @@ Validated attack scenarios:
 - **Audit Trail:** All requests logged with session_id
 - **Data Isolation:** Employee data never crosses session boundaries
 - **Secure Defaults:** Fail closed, not open
+
+---
+
+## 💰 Cost Characteristics
+
+### Cost Optimization via Hybrid Architecture
+
+| Query Type | Path | LLM Calls | Cost per Request |
+|-----------|------|-----------|------------------|
+| Balance check | Fast | 0 | $0.00 |
+| Policy lookup | Fast | 0 | $0.00 |
+| Eligibility check | Agentic | ~1 | ~$0.001 |
+| Complex reasoning | Agentic | ~1-2 | ~$0.002 |
+
+**Estimated Monthly Cost (1000 users, 10 queries/user/month):**
+
+- 70% fast path queries → 7,000 queries × $0 = **$0**
+- 30% agentic queries → 3,000 queries × $0.001 = **$3**
+
+**Total:** ~$3/month for 10,000 queries
+
+**Cloud Run Costs:**
+- First 2M requests/month: Free tier
+- CPU/Memory: ~$0.10/day with default settings
+
+**Total Infrastructure:** ~$5-10/month for small-medium workloads
+
+---
+
+## 📊 Production Notes
+
+### Session Memory Architecture
+
+**Current Implementation:**
+- Sessions stored in-memory using `InMemoryRunner`
+- TTL-based cleanup (30 minutes default)
+- Maximum 1000 concurrent sessions
+
+**Production Considerations:**
+
+⚠️ **Stateless Deployment:** Cloud Run instances are ephemeral. Conversations may reset during:
+- Cold starts (first request after idle period)
+- Auto-scaling events (traffic spikes)
+- Deployments (rolling updates)
+
+**Mitigation Strategies:**
+
+1. **Session Stickiness** (Current):
+   - Best-effort preservation within instance lifetime
+   - Suitable for short conversations (<30 min)
+
+2. **External State (Planned)**:
+   - Firestore for persistent sessions
+   - Redis for distributed caching
+   - Allows cross-instance conversation continuity
+
+**When to Add Persistence:**
+- Multi-day conversations required
+- Cross-device session continuity needed
+- >1000 concurrent users expected
+
+### Scaling Characteristics
+
+**Current Settings:**
+- Min instances: 0 (scales to zero)
+- Max instances: 5
+- Memory: 512Mi
+- CPU: 1
+
+**Performance:**
+- Cold start: ~3-5 seconds
+- Warm response (fast path): <100ms
+- Warm response (agentic): 1-3 seconds
+
+**Scaling Strategy:**
+- Horizontal scaling for concurrent users
+- Vertical scaling (memory/CPU) for complex queries
+
+### Monitoring & Observability
+
+**Built-in:**
+- Structured JSON logging
+- OpenTelemetry tracing
+- Circuit breaker state tracking
+- Request/response metrics
+
+**Cloud Run Integration:**
+- Automatic logging to Cloud Logging
+- Metrics in Cloud Monitoring
+- Request traces in Cloud Trace
+
+**Alerts (Recommended):**
+```bash
+# High error rate
+gcloud alpha monitoring policies create \
+  --notification-channels=CHANNEL_ID \
+  --display-name="High Error Rate" \
+  --condition-threshold-value=0.05 \
+  --condition-threshold-duration=60s
+
+# Circuit breaker open
+# Monitor /metrics endpoint for circuit_breaker.state != "closed"
+```
 
 ---
 
@@ -616,37 +822,6 @@ leave-policy-agent/
 
 ---
 
-## 📊 Observability
-
-### Structured Logging
-
-All logs include:
-- `timestamp` - ISO 8601 format
-- `level` - INFO, WARNING, ERROR
-- `session_id` - For request correlation
-- `employee_id` - For user tracking
-- `duration_ms` - For performance analysis
-
-### Distributed Tracing
-
-Critical operations are traced:
-```python
-with trace_span("agent_run", session=session_id):
-    response = await agent.run(message)
-```
-
-View traces in **Google Cloud Trace**.
-
-### Performance Metrics
-
-Key measurements:
-- Tool execution latency
-- Agent response time
-- Circuit breaker state transitions
-- Active session count
-
----
-
 ## 🤝 Contributing
 
 ### Development Workflow
@@ -665,7 +840,7 @@ Pre-commit hooks automatically run:
 
 ### Code Quality Standards
 
-- **Test Coverage:** >80% required
+- **Test Coverage:** >90% required
 - **Type Hints:** All function signatures
 - **Docstrings:** All public functions
 - **Naming:** Descriptive, not abbreviated
