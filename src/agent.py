@@ -298,18 +298,8 @@ class LeaveAssistantAgent:
 
         return final_response_text or ""
 
-    def chat(self, message: str, session_id: str, employee_id: str = None) -> str:
-        """
-        Send a message to the agent and get a response.
-
-        Args:
-            message: User's message
-            session_id: Session identifier for conversation history
-            employee_id: Optional employee ID for context
-
-        Returns:
-            Agent's response as string
-        """
+    async def chat_async(self, message: str, session_id: str, employee_id: str = None) -> str:
+        """Async version of chat - used by FastAPI."""
         logger.info(f"Processing message for session {session_id}")
 
         self._prune_sessions()
@@ -349,9 +339,8 @@ class LeaveAssistantAgent:
                 # Run agent with conversation history using async runner
                 try:
                     with trace_span("agent_run", session=session_id):
-                        # Execute async code in sync context
-                        response_text = asyncio.run(
-                            self._run_agent_async(message, session_id, employee_id)
+                        response_text = await self._run_agent_async(
+                            message, session_id, employee_id
                         )
 
                 except (ValueError, AttributeError, TypeError) as e:
@@ -370,10 +359,7 @@ class LeaveAssistantAgent:
                         "Blocked response: model attempted to answer without tool usage "
                         f"(session={session_id})"
                     )
-
-                    safe_response = "Let me verify that for you."
-
-                    return safe_response
+                    return "Let me verify that for you."
 
                 # Update conversation tracking
                 self.conversations[session_id]["ts"] = time.time()
@@ -391,6 +377,24 @@ class LeaveAssistantAgent:
                 "Please try again or contact HR support if the issue persists."
             )
             return error_msg
+
+    def chat(self, message: str, session_id: str, employee_id: str = None) -> str:
+        """
+        Synchronous wrapper for chat_async - used by tests.
+
+        This allows tests to call agent.chat() without async/await.
+        FastAPI will use chat_async() directly.
+        """
+
+        # Check if we're already in an event loop
+        try:
+            asyncio.get_running_loop()
+            # We're in an event loop - can't use asyncio.run()
+            # This shouldn't happen in tests, but if it does, raise error
+            raise RuntimeError("chat() called from async context. Use chat_async() instead.")
+        except RuntimeError:
+            # No event loop running - safe to use asyncio.run()
+            return asyncio.run(self.chat_async(message, session_id, employee_id))
 
     def reset_conversation(self, session_id: str):
         """Reset conversation history for a session."""

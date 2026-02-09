@@ -178,8 +178,8 @@ async def chat(request: ChatRequest):
         # Get agent
         agent = get_agent()
 
-        # Process message (note: agent.chat() handles async internally via asyncio.run())
-        response_text = agent.chat(
+        # Use async version for FastAPI
+        response_text = await agent.chat_async(
             message=request.message, session_id=request.session_id, employee_id=request.employee_id
         )
 

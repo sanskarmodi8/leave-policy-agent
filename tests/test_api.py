@@ -50,7 +50,11 @@ class TestAPIEndpoints:
         """Test successful chat request."""
         # Mock agent
         mock_agent = Mock()
-        mock_agent.chat.return_value = "Test response from agent"
+
+        async def mock_chat_async(*args, **kwargs):
+            return "Test response from agent"
+
+        mock_agent.chat_async = mock_chat_async
         mock_get_agent.return_value = mock_agent
 
         request_data = {
@@ -70,7 +74,11 @@ class TestAPIEndpoints:
     def test_chat_endpoint_without_employee_id(self, mock_get_agent, client):
         """Test chat without employee ID."""
         mock_agent = Mock()
-        mock_agent.chat.return_value = "Please provide your employee ID"
+
+        async def mock_chat_async(*args, **kwargs):
+            return "Please provide your employee ID"
+
+        mock_agent.chat_async = mock_chat_async
         mock_get_agent.return_value = mock_agent
 
         request_data = {"message": "Hello", "session_id": "test_session_2"}

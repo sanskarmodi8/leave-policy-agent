@@ -1,59 +1,7 @@
-# Cloud Build configuration for CI/CD pipeline
 steps:
-  # Step 1: Build Docker image
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'build'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/leave-policy-agent:$COMMIT_SHA'
-      - '-t'
-      - 'gcr.io/$PROJECT_ID/leave-policy-agent:latest'
-      - '.'
-    id: 'build-image'
+  - name: gcr.io/cloud-builders/docker
+    args: ["build", "-t", "gcr.io/$PROJECT_ID/leave-policy-agent:$SHORT_SHA", "."]
 
-  # Step 2: Push to Google Container Registry
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/$PROJECT_ID/leave-policy-agent:$COMMIT_SHA'
-    id: 'push-image'
-
-  # Step 3: Push latest tag
-  - name: 'gcr.io/cloud-builders/docker'
-    args:
-      - 'push'
-      - 'gcr.io/$PROJECT_ID/leave-policy-agent:latest'
-    id: 'push-latest'
-
-  # Step 4: Deploy to Cloud Run
-  - name: 'gcr.io/cloud-builders/gcloud'
-    args:
-      - 'run'
-      - 'deploy'
-      - 'leave-policy-agent'
-      - '--image=gcr.io/$PROJECT_ID/leave-policy-agent:$COMMIT_SHA'
-      - '--platform=managed'
-      - '--region=us-central1'
-      - '--allow-unauthenticated'  # Change to --no-allow-unauthenticated for production
-      - '--set-env-vars=ENVIRONMENT=production'
-      - '--set-secrets=OPENAI_API_KEY=openai-api-key:latest'
-      - '--set-secrets=SNOWFLAKE_PASSWORD=snowflake-password:latest'
-      - '--memory=512Mi'
-      - '--cpu=1'
-      - '--max-instances=10'
-      - '--min-instances=0'  # Scale to zero when not in use
-      - '--timeout=60s'
-    id: 'deploy-cloud-run'
-
-# Store images in Google Container Registry
 images:
-  - 'gcr.io/$PROJECT_ID/leave-policy-agent:$COMMIT_SHA'
-  - 'gcr.io/$PROJECT_ID/leave-policy-agent:latest'
+  - gcr.io/$PROJECT_ID/leave-policy-agent:$SHORT_SHA
 
-# Build configuration
-options:
-  machineType: 'N1_HIGHCPU_8'
-  logging: CLOUD_LOGGING_ONLY
-
-# Timeout for entire build
-timeout: '1200s'
