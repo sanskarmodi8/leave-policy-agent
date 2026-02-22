@@ -1,4 +1,4 @@
-# 🤖 Leave Policy Assistant Agent
+# Leave Policy Assistant Agent
 
 > **Production-grade AI agent for employee leave management**  
 > Built with Google ADK, deployed on Google Cloud Run
